@@ -1,8 +1,8 @@
-.PYONY: all build run setup
+.PHONY: all build run setup
 
 SHELL=/bin/bash
 IMAGE_NAME=node
-ALGORITHM=hello
+ALGORITHM?=hello
 
 all: build setup run
 
