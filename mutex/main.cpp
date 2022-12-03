@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
+
 #include <mpi.h>
-#include <queue>
 
 #define MAX_SECONDS_WITH_RESOURCE 25
 #define MAX_RESOURCE_TAKE 5
@@ -18,9 +19,12 @@ enum commands {
 
 class Node {
   public:
-    Node () {}
-    Node(int rank): rank(rank) {}
+    Node(int rank): rank(rank) {
+      srand(1LL * rank * time(NULL));
+    }
+
     virtual void start() = 0;
+
     void log(const char *fmt, ...) {
       char* msg;
       va_list args;
@@ -52,11 +56,14 @@ class Coordinator: public Node {
 
   private:
     void listen() {
-      int process = poll();
-      send_ok(process);
+      while (true) {
+        int process = wait_request();
+        send_ok(process);
+        wait_release(process);
+      }
     }
 
-    int poll() {
+    int wait_request() {
       int seconds;
       MPI_Status status;
 
@@ -68,9 +75,13 @@ class Coordinator: public Node {
     }
 
     void send_ok(int process) {
-      log("Allowing node %d to use resource.", process);
-
       MPI_Send(NULL, 0, MPI_BYTE, process, OK, MPI_COMM_WORLD);
+
+      log("Allowed node %d to use resource.", process);
+    }
+
+    void wait_release(int process) {
+      MPI_Recv(NULL, 0, MPI_BYTE, process, RELEASE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 };
 
@@ -78,7 +89,7 @@ class Coordinator: public Node {
 class Worker: public Node {
   public:
     Worker(int rank, int coord): Node(rank), coord(coord) {}
-    
+
     void start() {
       log("Starting worker (rank %d)...", rank);
 
@@ -86,7 +97,7 @@ class Worker: public Node {
 
       while (n--) {
         int seconds = random() % MAX_SECONDS_WITH_RESOURCE;
-        
+
         request(seconds);
         use(seconds);
         release();
@@ -97,6 +108,8 @@ class Worker: public Node {
     int coord;
 
     void request(int seconds) {
+      log("Request resource for %d seconds...", seconds);
+
       MPI_Send(&seconds, 1, MPI_INT, coord, REQUEST, MPI_COMM_WORLD);
 
       MPI_Recv(NULL, 0, MPI_BYTE, coord, OK, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
