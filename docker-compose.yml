@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  worker:
+    image: node
+    volumes:
+      - hosts:/hosts
+    tty: true
+    entrypoint: ["sh", "-c", "setup/startup.sh && bash"]
+  master:
+    image: node
+    container_name: master
+    hostname: master
+    volumes:
+      - hosts:/hosts
+    tty: true
+    entrypoint: ["sh", "-c", "setup/startup.sh && bash"]
+volumes:
+  hosts:
