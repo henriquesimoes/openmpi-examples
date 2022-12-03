@@ -1,6 +1,11 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <mpi.h>
 #include <queue>
+
+#define MAX_SECONDS_WITH_RESOURCE 25
+#define MAX_RESOURCE_TAKE 5
+
 
 using namespace std;
 
@@ -16,6 +21,20 @@ class Node {
     Node () {}
     Node(int rank): rank(rank) {}
     virtual void start() = 0;
+    void log(const char *fmt, ...) {
+      char* msg;
+      va_list args;
+
+      va_start(args, fmt);
+      vasprintf(&msg, fmt, args);
+
+      time_t timer = time(NULL);
+
+      printf("node %d @ %.24s: %s\n", rank, ctime(&timer), msg);
+
+      va_end(args);
+      free(msg);
+    }
 
   protected:
     int rank;
@@ -26,7 +45,7 @@ class Coordinator: public Node {
     Coordinator(int rank): Node(rank) {}
 
     void start() {
-      printf("Starting coordinator (rank %d)...\n", rank);
+      log("Starting coordinator (rank %d)...", rank);
 
       listen();
     }
@@ -43,12 +62,14 @@ class Coordinator: public Node {
 
       MPI_Recv(&seconds, 1, MPI_INT, MPI_ANY_SOURCE, REQUEST, MPI_COMM_WORLD, &status);
 
-      printf("%d asked for the resource...\n", status.MPI_SOURCE);
+      log("Node %d asked for the resource for %d seconds...", status.MPI_SOURCE, seconds);
 
       return status.MPI_SOURCE;
     }
 
     void send_ok(int process) {
+      log("Allowing node %d to use resource.", process);
+
       MPI_Send(NULL, 0, MPI_BYTE, process, OK, MPI_COMM_WORLD);
     }
 };
@@ -59,20 +80,38 @@ class Worker: public Node {
     Worker(int rank, int coord): Node(rank), coord(coord) {}
     
     void start() {
-      printf("Starting worker %d...\n", rank);
+      log("Starting worker (rank %d)...", rank);
 
-      request();
+      int n = random() % MAX_RESOURCE_TAKE;
+
+      while (n--) {
+        int seconds = random() % MAX_SECONDS_WITH_RESOURCE;
+        
+        request(seconds);
+        use(seconds);
+        release();
+      }
     }
 
   private:
     int coord;
 
-    void request() {
-      int seconds = 3;
-
+    void request(int seconds) {
       MPI_Send(&seconds, 1, MPI_INT, coord, REQUEST, MPI_COMM_WORLD);
 
       MPI_Recv(NULL, 0, MPI_BYTE, coord, OK, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    }
+
+    void use(int seconds) {
+      log("Using resource for %d seconds...", seconds);
+
+      sleep(seconds);
+
+      log("Finished using resource.");
+    }
+
+    void release() {
+      MPI_Send(NULL, 0, MPI_BYTE, coord, RELEASE, MPI_COMM_WORLD);
     }
 };
 
