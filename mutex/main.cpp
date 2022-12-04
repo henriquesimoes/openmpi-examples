@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
+#include <assert.h>
+#include <queue>
 
 #include <mpi.h>
 
-#define MAX_SECONDS_WITH_RESOURCE 25
-#define MAX_RESOURCE_TAKE 5
+#define MAX_SECONDS_WITH_RESOURCE 5
+#define MAX_RESOURCE_TAKE 3
 
 
 using namespace std;
@@ -14,6 +16,49 @@ enum commands {
   REQUEST,
   RELEASE,
   OK,
+};
+
+class Resource {
+  public:
+    const int FREE = -1;
+    queue<int> waiting;
+    int holding = FREE;
+
+  public:
+    Resource() {}
+
+    bool is_free() {
+      return holding == FREE;
+    }
+
+    void enqueue(int process) {
+      waiting.push(process);
+    }
+
+    bool grant() {
+      bool granted = false;
+
+      if (!waiting.empty()) {
+        assert(holding == FREE);
+
+        holding = waiting.front();
+        waiting.pop();
+
+        granted = true;
+      }
+
+      return granted;
+    }
+
+    int get_process() {
+      assert(holding != FREE);
+
+      return holding;
+    }
+
+    void release() {
+      holding = FREE;
+    }
 };
 
 
@@ -55,6 +100,8 @@ class Coordinator: public Node {
     }
 
   private:
+    Resource resource;
+
     void listen() {
       signal(SIGTERM, [](int signal) {
         fprintf(stderr, "Quitting...\n");
@@ -65,13 +112,34 @@ class Coordinator: public Node {
       });
 
       while (true) {
-        int process = wait_request();
-        send_ok(process);
-        wait_release(process);
+        process_incoming();
+
+        if (resource.is_free()) {
+          bool granted = resource.grant();
+
+          if (granted)
+            send_ok(resource.get_process());
+        } else {
+          int process = resource.get_process();
+
+          process_release(process);
+        }
       }
     }
 
-    int wait_request() {
+    void process_incoming() {
+      int available;
+
+      MPI_Iprobe(MPI_ANY_SOURCE, REQUEST, MPI_COMM_WORLD, &available, MPI_STATUS_IGNORE);
+
+      if (available) {
+        int process = read_request();
+
+        resource.enqueue(process);
+      }
+    }
+
+    int read_request() {
       int seconds;
       MPI_Status status;
 
@@ -88,8 +156,15 @@ class Coordinator: public Node {
       log("Allowed node %d to use resource.", process);
     }
 
-    void wait_release(int process) {
-      MPI_Recv(NULL, 0, MPI_BYTE, process, RELEASE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    void process_release(int process) {
+      int available;
+      MPI_Iprobe(process, RELEASE, MPI_COMM_WORLD, &available, MPI_STATUS_IGNORE);
+
+      if (available) {
+        MPI_Recv(NULL, 0, MPI_BYTE, process, RELEASE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        resource.release();
+      }
     }
 };
 
@@ -101,7 +176,7 @@ class Worker: public Node {
     void start() {
       log("Starting worker (rank %d)...", rank);
 
-      int n = random() % MAX_RESOURCE_TAKE;
+      int n = 1 + (random() % (MAX_RESOURCE_TAKE - 1));
 
       while (n--) {
         int seconds = random() % MAX_SECONDS_WITH_RESOURCE;
