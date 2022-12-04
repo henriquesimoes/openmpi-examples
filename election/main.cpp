@@ -32,8 +32,8 @@ class Node {
     Node(int rank, int size): rank(rank), size(size) {}
 
     void start() {
-      // if (rank == size - 1)
-      //  return;
+      if (rank == size - 1)
+        sleep(100);
 
       listen_job = new thread([this]() {
         this->listen_for_election();
@@ -148,13 +148,19 @@ class Node {
     }
 
     void broadcast_victory() {
-      log("I'm the winner of this election!\n");
+      log("I'm the winner of this election! Broadcasting result...\n");
+
+      for (int process = 0; process < size; process++)
+        MPI_Send(NULL, 0, MPI_BYTE, process, RESULT, MPI_COMM_WORLD);
     }
 
     void wait_for_result() {
       log("Waiting for election result...\n");
+      MPI_Status status;
 
-      MPI_Recv(NULL, 0, MPI_BYTE, MPI_ANY_SOURCE, RESULT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      MPI_Recv(NULL, 0, MPI_BYTE, MPI_ANY_SOURCE, RESULT, MPI_COMM_WORLD, &status);
+
+      log("I acknowledge that %d is the winner!\n", status.MPI_SOURCE);
     }
 };
 
