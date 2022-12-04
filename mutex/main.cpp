@@ -56,6 +56,14 @@ class Coordinator: public Node {
 
   private:
     void listen() {
+      signal(SIGTERM, [](int signal) {
+        fprintf(stderr, "Quitting...\n");
+
+        MPI_Abort(MPI_COMM_WORLD, EXIT_SUCCESS);
+
+        exit(EXIT_SUCCESS);
+      });
+
       while (true) {
         int process = wait_request();
         send_ok(process);
