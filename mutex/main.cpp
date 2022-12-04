@@ -6,7 +6,7 @@
 
 #include <mpi.h>
 
-#define MAX_SECONDS_WITH_RESOURCE 5
+#define MAX_SECONDS_WITH_RESOURCE 10
 #define MAX_RESOURCE_TAKE 3
 
 
@@ -112,8 +112,6 @@ class Coordinator: public Node {
       });
 
       while (true) {
-        wait_for_message();
-
         process_incoming();
 
         if (resource.is_free()) {
@@ -127,14 +125,6 @@ class Coordinator: public Node {
           process_release(process);
         }
       }
-    }
-
-    void wait_for_message() {
-      // Block waiting for any message
-      //
-      // This allows the process to be blocked by the operating system
-      // avoiding the busy waiting which wastes resources.
-      MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
     void process_incoming() {
